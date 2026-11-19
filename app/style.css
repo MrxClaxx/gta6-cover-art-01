@@ -1,4 +1,4 @@
-/* Neon Coast Cover Studio — v2: centred-logo cover. */
+/* Neon Coast Cover Studio — v3: centred-logo cover, compact caption strips. */
 @font-face { font-family: 'Anton'; src: url('fonts/Anton-Regular.ttf') format('truetype'); font-display: swap; }
 @font-face { font-family: 'Pacifico'; src: url('fonts/Pacifico-Regular.ttf') format('truetype'); font-display: swap; }
 * { box-sizing: border-box; }
