@@ -1,4 +1,5 @@
 // Neon Coast Cover Studio — gta6-cover-art-01 entrypoint (Node 22, stdlib only).
+// v2: centred-logo cover, 'sunset-state' default layout, six distinct samples.
 // Hands the app in: copies app/ and screenshots/ from beside this file to /output
 // and writes /output/dossier.json with the vendored make.fun library.
 // The app is plain static files (app/index.html + ES modules, vendored OFL fonts,
