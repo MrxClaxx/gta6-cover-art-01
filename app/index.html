@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Coast Cover Studio — GTA-style cover art maker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">NC</span><div><h1>Neon Coast Cover Studio</h1><p>Turn any photo into GTA-style cover art — offline, in your browser.</p></div></div>
+  <div class="top-actions">
+    <button id="undoBtn" disabled>↩ Undo</button>
+    <button id="redoBtn" disabled>↪ Redo</button>
+    <button id="surpriseBtn" class="accent">🎲 Surprise me</button>
+  </div>
+</header>
+<main class="workspace">
+  <aside class="panel left">
+    <section>
+      <h2>1 · Photos</h2>
+      <p class="hint">Click a panel on the cover, then pick a photo — or upload your own. Photos never leave your machine.</p>
+      <label class="upload-btn">＋ Upload photo<input id="uploadInput" type="file" accept="image/*" hidden></label>
+      <div id="photoPicker" class="thumbs"></div>
+    </section>
+    <section>
+      <h2>2 · Layout</h2>
+      <div id="layoutGrid" class="chips"></div>
+    </section>
+    <section>
+      <h2>3 · Sunset grade</h2>
+      <div id="gradeGrid" class="chips"></div>
+    </section>
+    <section>
+      <h2>4 · Post size</h2>
+      <div id="sizeGrid" class="chips"></div>
+    </section>
+  </aside>
+
+  <section class="stage">
+    <div class="canvas-wrap"><canvas id="coverCanvas" width="1920" height="1080"></canvas></div>
+    <p class="stage-hint">Click a panel to select it · drag inside it to position the photo · scroll to zoom · edit its caption on the right.</p>
+    <div class="export-row">
+      <span>Export PNG:</span>
+      <button data-export="landscape">1920 × 1080</button>
+      <button data-export="square">1080 × 1080</button>
+      <button data-export="story">1080 × 1350</button>
+      <span id="exportNote" class="export-note"></span>
+    </div>
+  </section>
+
+  <aside class="panel right">
+    <section>
+      <h2>Cover lettering</h2>
+      <label>Block title<input id="titleInput" type="text" value="SUNSET HEIST" maxlength="24"></label>
+      <label>Neon subtitle<input id="subtitleInput" type="text" value="Vice City nights" maxlength="32"></label>
+      <label>Bottom tagline<input id="taglineInput" type="text" value="EVERY SUNSET HAS A PRICE  •  LEONIDA, 2026" maxlength="64"></label>
+    </section>
+    <section>
+      <h2 id="panelLabel">Panel 1</h2>
+      <label>Zoom <span id="zoomVal">100%</span><input id="zoomRange" type="range" min="1" max="3" step="0.01" value="1"></label>
+      <label>Caption place<input id="capPlace" type="text" maxlength="24"></label>
+      <div class="row2">
+        <label>Time<input id="capTime" type="text" maxlength="10"></label>
+        <label>Tagline<input id="capTag" type="text" maxlength="20"></label>
+      </div>
+    </section>
+    <section>
+      <h2>Finishing</h2>
+      <label class="check"><input id="badgesToggle" type="checkbox" checked> Badges — EST. 2026 seal, VOL. 06, WANTED ★★★★★</label>
+      <label class="check"><input id="captionsToggle" type="checkbox" checked> Panel caption labels</label>
+      <label class="check"><input id="grainToggle" type="checkbox" checked> Film grain + halftone</label>
+    </section>
+    <section class="about">
+      <h2>How it works</h2>
+      <p>1. Pick a layout and a grade. 2. Fill the panels with your photos — drag to crop, scroll to zoom. 3. Write your title. 4. Export a PNG in any post size. Everything runs offline; your photos are never uploaded. Fonts: Anton + Pacifico (SIL OFL). All art is original — no Rockstar logo, artwork or fonts.</p>
+    </section>
+  </aside>
+</main>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

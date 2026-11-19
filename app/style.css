@@ -1,0 +1,51 @@
+@font-face { font-family: 'Anton'; src: url('fonts/Anton-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Pacifico'; src: url('fonts/Pacifico-Regular.ttf') format('truetype'); font-display: swap; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #12041f; color: #f5efff; font-family: Arial, Helvetica, sans-serif; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 18px; background: linear-gradient(90deg, #2a0a4a, #7b1158 55%, #c22a6b); border-bottom: 3px solid #ffd23f; }
+.brand { display: flex; gap: 12px; align-items: center; }
+.brand-mark { width: 46px; height: 46px; border-radius: 10px; background: linear-gradient(135deg, #ffd23f, #ff2e88); color: #160420; font: 900 20px Anton, sans-serif; display: grid; place-items: center; }
+.brand h1 { font: 28px Anton, sans-serif; letter-spacing: 1px; margin: 0; text-transform: uppercase; }
+.brand p { margin: 2px 0 0; font-size: 13px; color: #ffd7ef; }
+.top-actions { display: flex; gap: 8px; }
+button { font: 700 14px Arial, sans-serif; color: #fff; background: #3a1560; border: 1px solid #8b5cf6; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+button:hover { background: #4b1d7a; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.accent { background: linear-gradient(135deg, #ff7a18, #ff2e88); border-color: #ffd23f; }
+.workspace { display: grid; grid-template-columns: 300px 1fr 300px; gap: 14px; padding: 14px; align-items: start; }
+.panel { background: #1d0a33; border: 1px solid #4b2a72; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+.panel h2 { font: 18px Anton, sans-serif; letter-spacing: 1px; text-transform: uppercase; color: #ffd23f; margin: 0 0 8px; }
+.hint { font-size: 12.5px; color: #cdb8e8; margin: 0 0 10px; line-height: 1.45; }
+.upload-btn { display: block; text-align: center; background: #ff2e88; border-radius: 8px; padding: 10px; font-weight: 800; cursor: pointer; margin-bottom: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 7px 10px; font-size: 12.5px; background: #2a1145; border-color: #5b3a86; }
+.chip.active { background: linear-gradient(135deg, #ff7a18, #ff2e88); border-color: #ffd23f; }
+.chip .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 6px; vertical-align: -2px; border: 1px solid #fff; }
+.thumbs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.thumb { padding: 0; overflow: hidden; background: #2a1145; border: 2px solid #5b3a86; border-radius: 8px; text-align: left; }
+.thumb.active { border-color: #00e5ff; }
+.thumb img { width: 100%; height: 64px; object-fit: cover; display: block; }
+.thumb span { display: block; padding: 5px 7px; font-size: 11.5px; }
+.stage { min-width: 0; }
+.canvas-wrap { background: #000; border: 2px solid #5b3a86; border-radius: 12px; overflow: hidden; }
+#coverCanvas { width: 100%; height: auto; display: block; cursor: grab; }
+#coverCanvas:active { cursor: grabbing; }
+.stage-hint { font-size: 12.5px; color: #cdb8e8; margin: 8px 2px; }
+.export-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: #1d0a33; border: 1px solid #4b2a72; border-radius: 10px; padding: 10px 12px; }
+.export-row span { font-weight: 800; font-size: 13px; }
+.export-note { color: #7df9ff; font-weight: 400; }
+.panel label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 10px; color: #e8d9ff; }
+.panel input[type=text] { width: 100%; margin-top: 5px; padding: 9px 10px; border-radius: 8px; border: 1px solid #5b3a86; background: #12041f; color: #fff; font-size: 14px; }
+.panel input[type=range] { width: 100%; accent-color: #ff2e88; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; line-height: 1.4; }
+.check input { margin-top: 2px; accent-color: #ff2e88; }
+.about p { font-size: 12.5px; line-height: 1.55; color: #cdb8e8; margin: 0; }
+/* Screenshot mode: cover fills the whole window, no editor chrome. */
+body.shot-cover .topbar, body.shot-cover .panel, body.shot-cover .stage-hint, body.shot-cover .export-row { display: none; }
+body.shot-cover { background: #000; }
+body.shot-cover .workspace { display: block; padding: 0; }
+body.shot-cover .stage { width: 100vw; height: 100vh; display: grid; place-items: center; }
+body.shot-cover .canvas-wrap { border: 0; border-radius: 0; width: 100vw; height: 100vh; }
+body.shot-cover #coverCanvas { width: 100vw; height: 100vh; object-fit: contain; }
+@media (max-width: 1100px) { .workspace { grid-template-columns: 1fr; } }
