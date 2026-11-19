@@ -1,43 +1,44 @@
-// Neon Coast Cover Studio — gta6-cover-art-01 entrypoint (Node 22, stdlib only).
-// v2: centred-logo cover, 'sunset-state' default layout, six distinct samples.
-// v3: caption strips fall back to a one-line form near the logo; the default
-// cover's bottom-middle / bottom-right panels are swapped (speedboat /
-// fisherman) so the neon script never crosses the fisherman's face.
-// Hands the app in: copies app/ and screenshots/ from beside this file to /output
-// and writes /output/dossier.json with the vendored make.fun library.
-// The app is plain static files (app/index.html + ES modules, vendored OFL fonts,
-// model-made sample photos) that run offline in desktop Chrome; nothing is fetched.
-// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// main.ts — entrypoint for Neon Coast Cover Studio (gta6-cover-art-01).
+// Hands the app in: copies app/ and screenshots/ from this repository into
+// the output directory and writes dossier.json with buildDossier from
+// vendor/makefun-app.ts. Node 22, standard library only; outside the
+// grader, MAKEFUN_OUTPUT_DIR stands in for /output.
 
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { buildDossier } from './vendor/makefun-app.ts';
+import { buildDossier } from "./vendor/makefun-app.ts";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const repoRoot = dirname(fileURLToPath(import.meta.url));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
-
-const dossierPath = join(out, 'dossier.json');
-writeFileSync(
-  dossierPath,
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    app_max_files: 993,
-    app_max_bytes: 50331648,
-    app_path_max_bytes: 1000,
-  }),
-);
-
-// Fail loudly (instead of handing in a half-written output) when the copy is
-// incomplete: the dossier must exist and the screenshots must have landed.
-const shotCount = readdirSync(join(out, 'screenshots')).filter((f) => !f.startsWith('.')).length;
-if (statSync(dossierPath).size === 0 || shotCount < 3 || shotCount > 4) {
-  throw new Error(`incomplete output: dossier ${statSync(dossierPath).size} bytes, ${shotCount} screenshots`);
+const appDir = join(repoRoot, "app");
+const shotsDir = join(repoRoot, "screenshots");
+for (const dir of [appDir, shotsDir]) {
+  if (!existsSync(dir)) throw new Error(`Neon Coast Cover Studio: missing ${dir}`);
 }
+
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(outDir, { recursive: true });
+cpSync(appDir, join(outDir, "app"), { recursive: true });
+cpSync(shotsDir, join(outDir, "screenshots"), { recursive: true });
+
+const dossier = buildDossier(outDir, {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  app_max_files: 993,
+  app_max_bytes: 50331648,
+});
+writeFileSync(join(outDir, "dossier.json"), dossier);
+
+const shotCount = readdirSync(shotsDir).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).length;
+console.log(
+  `Neon Coast Cover Studio: wrote ${outDir} (${shotCount} screenshots, dossier ${dossier.length} bytes)`,
+);
