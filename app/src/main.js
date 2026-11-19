@@ -1,350 +1,433 @@
-// Neon Coast Cover Studio — editor (v2: centred-logo cover, distinct photos;
-// v3: caption strips go compact near the logo; default bottom panels swapped
-// so the script never crosses a face).
-// Live canvas preview, click-to-select panels, drag to position + wheel to zoom,
-// upload/crop per panel, 10 layouts, 5 grades, editable title/subtitle/tagline,
-// undo/redo, Surprise me, PNG export in 3 post sizes. Offline: all files local.
-// URL params make shots deterministic: ?shot=cover|editor&layout=..&grade=..&size=..
-// &sample=..&title=..&subtitle=..&seed=.. (seed drives Surprise me).
-// v2: the default layout is 'sunset-state' (cinematic hero + 5 distinct panels)
-// and panel photos are never repeated within a cover — the first six panels
-// always show six different samples; longer layouts cycle only after every
-// sample has been used once.
+// main.js — editor for Neon Coast Cover Studio (v4, fresh rewrite).
+// Wires the preview canvas, the photo tray, layout/grade controls, panel
+// crop + position, undo/redo, Surprise me and PNG export. Everything runs
+// offline from the app's own files; no network calls anywhere.
 
-import { SAMPLES, GRADES, LAYOUTS, SIZES, CAPTIONS, drawCover, layoutPanels, panelAt } from './cover.js';
+(function () {
+  'use strict';
 
-const $ = (s) => document.querySelector(s);
-const params = new URLSearchParams(location.search);
-const shot = params.get('shot') || 'editor';
+  var CS = window.CoverStudio;
+  var $ = function (id) { return document.getElementById(id); };
 
-function mulberry(seed) {
-  let s = seed >>> 0;
-  return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
+  var state = CS.defaultState();
+  var images = {};          // photo id -> HTMLImageElement
+  var uploads = [];         // uploaded photo ids, in order
+  var uploadCount = 0;
+  var selected = 0;         // selected panel slot index
+  var undoStack = [];
+  var redoStack = [];
+  var previewW = 960, previewH = 540;
+  var canvas, ctx;
+  var shotMode = new URLSearchParams(location.search).get('shot') === 'cover';
 
-// Seeded shuffle of the sample ids — panels take the first N, so no photo
-// repeats until every sample has been used once.
-function distinctOrder(seed) {
-  const order = SAMPLES.map((s) => s.id);
-  const rnd = mulberry(seed);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [order[i], order[j]] = [order[j], order[i]];
+  // ------------------------------------------------------------ history
+
+  function pushHistory() {
+    undoStack.push(CS.cloneState(state));
+    if (undoStack.length > 60) undoStack.shift();
+    redoStack.length = 0;
+    refreshHistoryButtons();
   }
-  return order;
-}
 
-// The default cover opens with the cinematic golden-hour hero photo; the rest
-// are distinct samples in a fixed order that matches the panel captions.
-// v3: the bottom-middle and bottom-right panels are swapped (speedboat /
-// fisherman, photo + caption together) so the centred neon script subtitle
-// never crosses the fisherman's face — it now ends over the speedboat's sky.
-const HERO_ORDER = ['boulevard', 'tower', 'marina', 'rooftop', 'speedboat', 'pier'];
-const HERO_CAPTIONS = [0, 1, 2, 3, 5, 4]; // caption indices matching HERO_ORDER
+  function undo() {
+    if (!undoStack.length) return;
+    redoStack.push(CS.cloneState(state));
+    state = undoStack.pop();
+    syncControls();
+    render();
+    refreshHistoryButtons();
+  }
 
-function defaultPanels(layoutId) {
-  const lay = LAYOUTS.find((l) => l.id === layoutId) || LAYOUTS[0];
-  const order = layoutId === 'sunset-state' ? HERO_ORDER : distinctOrder(20261120);
-  const capOrder = layoutId === 'sunset-state' ? HERO_CAPTIONS : null;
-  return lay.panels.map((_, i) => ({
-    photo: order[i % order.length],
-    zoom: 1, ox: 0, oy: 0,
-    caption: { ...CAPTIONS[(capOrder ? capOrder[i] : i) % CAPTIONS.length] },
-  }));
-}
+  function redo() {
+    if (!redoStack.length) return;
+    undoStack.push(CS.cloneState(state));
+    state = redoStack.pop();
+    syncControls();
+    render();
+    refreshHistoryButtons();
+  }
 
-function defaultState() {
-  return {
-    layout: 'sunset-state', grade: 'sunset', size: 'landscape',
-    title: 'SUNSET HEIST', subtitle: 'Vice City nights',
-    tagline: 'EVERY SUNSET HAS A PRICE  •  LEONIDA, 2026',
-    panels: defaultPanels('sunset-state'),
-    badges: true, captions: true, grain: true,
-  };
-}
+  function refreshHistoryButtons() {
+    $('undoBtn').disabled = !undoStack.length;
+    $('redoBtn').disabled = !redoStack.length;
+  }
 
-let state = defaultState();
-let selected = 0;
-const images = new Map();       // photoId -> HTMLImageElement
-const uploads = new Map();      // uploadId -> dataURL
-let undoStack = [], redoStack = [];
+  // ------------------------------------------------------------ loading
 
-function snapshot() { return JSON.stringify(state); }
-function pushUndo() { undoStack.push(snapshot()); if (undoStack.length > 40) undoStack.shift(); redoStack = []; updateUndoButtons(); }
-function restore(json) { state = JSON.parse(json); state.panels = state.panels.map((p) => ({ ...p, caption: { ...p.caption } })); selected = Math.min(selected, state.panels.length - 1); syncControls(); render(); }
-function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); updateUndoButtons(); }
-function redo() { if (!undoStack.length) return; undoStack.push(snapshot()); restore(undoStack.pop()); updateUndoButtons(); }
-function updateUndoButtons() { $('#undoBtn').disabled = !undoStack.length; $('#redoBtn').disabled = !redoStack.length; }
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
 
-function loadImage(id, src) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => { images.set(id, img); resolve(img); };
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
+  function loadAll() {
+    var jobs = CS.SAMPLE_PHOTOS.map(function (p) {
+      return loadImage(p.src).then(function (img) { images[p.id] = img; });
+    });
+    var fonts = [];
+    if (document.fonts) {
+      fonts.push(document.fonts.load('400 100px Anton'));
+      fonts.push(document.fonts.load('400 100px Pacifico'));
+      fonts.push(document.fonts.load('600 20px system-ui'));
+    }
+    return Promise.all(jobs.concat(fonts)).catch(function () { /* keep going */ });
+  }
 
-async function loadSamples() {
-  await Promise.all(SAMPLES.map((s) => loadImage(s.id, s.src)));
-  await document.fonts.load('100px Anton');
-  await document.fonts.load('100px Pacifico');
-  await document.fonts.ready;
-}
+  // ------------------------------------------------------------ render
 
-const canvas = $('#coverCanvas');
-const ctx = canvas.getContext('2d');
+  function previewSize() {
+    var size = CS.SIZES[state.size];
+    var maxW = shotMode ? window.innerWidth : 960;
+    var scale = Math.min(1, maxW / size.w);
+    if (shotMode) scale = Math.max(window.innerWidth / size.w, window.innerHeight / size.h);
+    previewW = Math.round(size.w * scale);
+    previewH = Math.round(size.h * scale);
+  }
 
-function currentSize() { return SIZES.find((s) => s.id === state.size) || SIZES[0]; }
+  function render() {
+    previewSize();
+    if (canvas.width !== previewW || canvas.height !== previewH) {
+      canvas.width = previewW;
+      canvas.height = previewH;
+    }
+    canvas.style.width = previewW + 'px';
+    canvas.style.height = previewH + 'px';
+    CS.drawCover(ctx, state, images, previewW, previewH);
+    highlightSelected();
+  }
 
-function render() {
-  const { w, h } = currentSize();
-  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-  drawCover(ctx, state, w, h, images);
-  drawSelection();
-}
+  function geometry() {
+    var layout = CS.find(CS.LAYOUTS, state.layout);
+    return layout.build(previewW, previewH);
+  }
 
-function drawSelection() {
-  if (shot === 'cover') return;
-  const { w, h } = currentSize();
-  const panels = layoutPanels(state.layout, w, h);
-  const p = panels[selected];
-  if (!p) return;
-  ctx.save();
-  ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = Math.max(3, w * 0.003);
-  ctx.setLineDash([18, 10]);
-  ctx.strokeRect(p.x, p.y, p.w, p.h);
-  ctx.setLineDash([]);
-  ctx.fillStyle = '#00e5ff';
-  ctx.font = `800 ${Math.max(16, Math.round(w * 0.014))}px Arial, sans-serif`;
-  ctx.fillText(`PANEL ${selected + 1}`, p.x + 10, p.y + Math.max(20, Math.round(w * 0.02)));
-  ctx.restore();
-}
+  function highlightSelected() {
+    if (shotMode) return;
+    var geo = geometry();
+    var p = geo.panels[selected % geo.panels.length];
+    if (!p) return;
+    ctx.save();
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 6]);
+    ctx.strokeRect(p.x + 2, p.y + 2, p.w - 4, p.h - 4);
+    ctx.restore();
+  }
 
-function toCoverCoords(e) {
-  const r = canvas.getBoundingClientRect();
-  const { w, h } = currentSize();
-  return { x: ((e.clientX - r.left) / r.width) * w, y: ((e.clientY - r.top) / r.height) * h };
-}
+  function panelAt(mx, my) {
+    var geo = geometry();
+    for (var i = geo.panels.length - 1; i >= 0; i--) {
+      var p = geo.panels[i];
+      if (mx >= p.x && mx <= p.x + p.w && my >= p.y && my <= p.y + p.h) return i;
+    }
+    return -1;
+  }
 
-let drag = null;
-canvas.addEventListener('pointerdown', (e) => {
-  const { x, y } = toCoverCoords(e);
-  const { w, h } = currentSize();
-  const idx = panelAt(state.layout, w, h, x, y);
-  if (idx < 0) return;
-  if (idx !== selected) { selected = idx; syncPanelControls(); render(); }
-  drag = { x, y, ox: state.panels[idx].ox, oy: state.panels[idx].oy, moved: false };
-  canvas.setPointerCapture(e.pointerId);
-});
-canvas.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  const { x, y } = toCoverCoords(e);
-  const { w, h } = currentSize();
-  const p = layoutPanels(state.layout, w, h)[selected];
-  const dx = (x - drag.x) / p.w, dy = (y - drag.y) / p.h;
-  if (Math.abs(dx) + Math.abs(dy) > 0.004) drag.moved = true;
-  state.panels[selected].ox = Math.max(-0.6, Math.min(0.6, drag.ox + dx));
-  state.panels[selected].oy = Math.max(-0.6, Math.min(0.6, drag.oy + dy));
-  render();
-});
-canvas.addEventListener('pointerup', () => { if (drag && drag.moved) pushUndoSilent(); drag = null; });
-canvas.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  const pc = state.panels[selected];
-  pc.zoom = Math.max(1, Math.min(3, pc.zoom * (e.deltaY < 0 ? 1.08 : 0.93)));
-  $('#zoomRange').value = pc.zoom;
-  $('#zoomVal').textContent = `${Math.round(pc.zoom * 100)}%`;
-  render();
-}, { passive: false });
+  // ------------------------------------------------------------ controls
 
-// pushUndo without clearing redo on drag end: snapshot was taken at drag start instead.
-let dragStartSnapshot = null;
-canvas.addEventListener('pointerdown', () => { dragStartSnapshot = snapshot(); });
-function pushUndoSilent() {
-  if (dragStartSnapshot) { undoStack.push(dragStartSnapshot); if (undoStack.length > 40) undoStack.shift(); redoStack = []; updateUndoButtons(); dragStartSnapshot = null; }
-}
+  function buildTray() {
+    var tray = $('tray');
+    tray.innerHTML = '';
+    CS.SAMPLE_PHOTOS.forEach(function (p) {
+      var b = document.createElement('button');
+      b.className = 'tray-item';
+      b.title = p.label;
+      var img = document.createElement('img');
+      img.src = p.src;
+      img.alt = p.label;
+      b.appendChild(img);
+      var lab = document.createElement('span');
+      lab.textContent = p.label;
+      b.appendChild(lab);
+      b.addEventListener('click', function () { assignPhoto(p.id); });
+      tray.appendChild(b);
+    });
+    uploads.forEach(function (id) {
+      var b = document.createElement('button');
+      b.className = 'tray-item uploaded';
+      b.title = 'Your photo';
+      var img = document.createElement('img');
+      img.src = images[id].src;
+      img.alt = 'Uploaded photo';
+      b.appendChild(img);
+      var lab = document.createElement('span');
+      lab.textContent = 'Upload';
+      b.appendChild(lab);
+      b.addEventListener('click', function () { assignPhoto(id); });
+      tray.appendChild(b);
+    });
+  }
 
-function buildLayoutButtons() {
-  const box = $('#layoutGrid');
-  box.innerHTML = '';
-  LAYOUTS.forEach((l) => {
-    const b = document.createElement('button');
-    b.className = 'chip' + (l.id === state.layout ? ' active' : '');
-    b.textContent = l.name;
-    b.onclick = () => { pushUndo(); state.layout = l.id; state.panels = defaultPanels(l.id); selected = 0; syncControls(); render(); };
-    box.appendChild(b);
-  });
-}
+  function assignPhoto(photoId) {
+    pushHistory();
+    state.panels[selected].photo = photoId;
+    state.panels[selected].zoom = 1;
+    state.panels[selected].ox = 0.5;
+    state.panels[selected].oy = 0.5;
+    render();
+  }
 
-function buildGradeButtons() {
-  const box = $('#gradeGrid');
-  box.innerHTML = '';
-  GRADES.forEach((g) => {
-    const b = document.createElement('button');
-    b.className = 'chip grade' + (g.id === state.grade ? ' active' : '');
-    b.innerHTML = `<span class="swatch" style="background:linear-gradient(135deg,${g.wash[0]},${g.wash[1]})"></span>${g.name}`;
-    b.onclick = () => { pushUndo(); state.grade = g.id; syncControls(); render(); };
-    box.appendChild(b);
-  });
-}
+  function buildLayoutButtons() {
+    var wrap = $('layoutGrid');
+    wrap.innerHTML = '';
+    CS.LAYOUTS.forEach(function (l) {
+      var b = document.createElement('button');
+      b.className = 'layout-btn' + (l.id === state.layout ? ' active' : '');
+      b.textContent = l.name;
+      b.addEventListener('click', function () {
+        if (state.layout === l.id) return;
+        pushHistory();
+        state.layout = l.id;
+        selected = 0;
+        buildLayoutButtons();
+        syncPanelEditor();
+        render();
+      });
+      wrap.appendChild(b);
+    });
+  }
 
-function buildSizeButtons() {
-  const box = $('#sizeGrid');
-  box.innerHTML = '';
-  SIZES.forEach((s) => {
-    const b = document.createElement('button');
-    b.className = 'chip' + (s.id === state.size ? ' active' : '');
-    b.textContent = s.name;
-    b.onclick = () => { pushUndo(); state.size = s.id; syncControls(); render(); };
-    box.appendChild(b);
-  });
-}
+  function buildGradeButtons() {
+    var wrap = $('gradeRow');
+    wrap.innerHTML = '';
+    CS.GRADES.forEach(function (g) {
+      var b = document.createElement('button');
+      b.className = 'grade-btn' + (g.id === state.grade ? ' active' : '');
+      b.style.background = 'linear-gradient(135deg,' + g.titleTop + ',' + g.titleBottom + ')';
+      b.textContent = g.name;
+      b.addEventListener('click', function () {
+        if (state.grade === g.id) return;
+        pushHistory();
+        state.grade = g.id;
+        buildGradeButtons();
+        render();
+      });
+      wrap.appendChild(b);
+    });
+  }
 
-function buildPhotoPicker() {
-  const box = $('#photoPicker');
-  box.innerHTML = '';
-  SAMPLES.forEach((s) => {
-    const d = document.createElement('button');
-    d.className = 'thumb' + (state.panels[selected]?.photo === s.id ? ' active' : '');
-    d.title = s.label;
-    d.innerHTML = `<img src="${s.src}" alt="${s.label}"><span>${s.label}</span>`;
-    d.onclick = () => { pushUndo(); state.panels[selected].photo = s.id; buildPhotoPicker(); render(); };
-    box.appendChild(d);
-  });
-  uploads.forEach((url, id) => {
-    const d = document.createElement('button');
-    d.className = 'thumb' + (state.panels[selected]?.photo === id ? ' active' : '');
-    d.innerHTML = `<img src="${url}" alt="Upload"><span>Upload</span>`;
-    d.onclick = () => { pushUndo(); state.panels[selected].photo = id; buildPhotoPicker(); render(); };
-    box.appendChild(d);
-  });
-}
+  function buildSizeButtons() {
+    var wrap = $('sizeRow');
+    wrap.innerHTML = '';
+    Object.keys(CS.SIZES).forEach(function (key) {
+      var s = CS.SIZES[key];
+      var b = document.createElement('button');
+      b.className = 'size-btn' + (key === state.size ? ' active' : '');
+      b.textContent = s.label;
+      b.addEventListener('click', function () {
+        if (state.size === key) return;
+        pushHistory();
+        state.size = key;
+        buildSizeButtons();
+        render();
+      });
+      wrap.appendChild(b);
+    });
+  }
 
-function syncPanelControls() {
-  const pc = state.panels[selected] || {};
-  $('#panelLabel').textContent = `Panel ${selected + 1} of ${state.panels.length}`;
-  $('#zoomRange').value = pc.zoom || 1;
-  $('#zoomVal').textContent = `${Math.round((pc.zoom || 1) * 100)}%`;
-  $('#capPlace').value = pc.caption?.place || '';
-  $('#capTime').value = pc.caption?.time || '';
-  $('#capTag').value = pc.caption?.tag || '';
-  buildPhotoPicker();
-}
+  function syncControls() {
+    $('titleInput').value = state.title;
+    $('scriptInput').value = state.script;
+    $('taglineInput').value = state.tagline;
+    buildLayoutButtons();
+    buildGradeButtons();
+    buildSizeButtons();
+    syncPanelEditor();
+  }
 
-function syncControls() {
-  $('#titleInput').value = state.title;
-  $('#subtitleInput').value = state.subtitle;
-  $('#taglineInput').value = state.tagline;
-  $('#badgesToggle').checked = state.badges !== false;
-  $('#captionsToggle').checked = state.captions !== false;
-  $('#grainToggle').checked = state.grain !== false;
-  buildLayoutButtons(); buildGradeButtons(); buildSizeButtons(); syncPanelControls();
-}
+  function syncPanelEditor() {
+    var geo = geometry();
+    var slot = state.panels[selected % geo.panels.length];
+    $('panelName').textContent = 'Panel ' + (selected + 1) + ' of ' + geo.panels.length;
+    $('captionInput').value = slot.caption || '';
+    $('subInput').value = slot.sub || '';
+    $('zoomInput').value = Math.round((slot.zoom || 1) * 100);
+    $('zoomVal').textContent = Math.round((slot.zoom || 1) * 100) + '%';
+  }
 
-function bindControls() {
-  $('#titleInput').addEventListener('input', (e) => { state.title = e.target.value; render(); });
-  $('#subtitleInput').addEventListener('input', (e) => { state.subtitle = e.target.value; render(); });
-  $('#taglineInput').addEventListener('input', (e) => { state.tagline = e.target.value; render(); });
-  $('#titleInput').addEventListener('change', pushUndo);
-  $('#subtitleInput').addEventListener('change', pushUndo);
-  $('#taglineInput').addEventListener('change', pushUndo);
-  $('#badgesToggle').addEventListener('change', (e) => { pushUndo(); state.badges = e.target.checked; render(); });
-  $('#captionsToggle').addEventListener('change', (e) => { pushUndo(); state.captions = e.target.checked; render(); });
-  $('#grainToggle').addEventListener('change', (e) => { pushUndo(); state.grain = e.target.checked; render(); });
-  $('#zoomRange').addEventListener('input', (e) => { state.panels[selected].zoom = parseFloat(e.target.value); $('#zoomVal').textContent = `${Math.round(state.panels[selected].zoom * 100)}%`; render(); });
-  $('#zoomRange').addEventListener('change', pushUndo);
-  $('#capPlace').addEventListener('input', (e) => { state.panels[selected].caption.place = e.target.value.toUpperCase(); render(); });
-  $('#capTime').addEventListener('input', (e) => { state.panels[selected].caption.time = e.target.value; render(); });
-  $('#capTag').addEventListener('input', (e) => { state.panels[selected].caption.tag = e.target.value.toUpperCase(); render(); });
-  $('#undoBtn').onclick = undo;
-  $('#redoBtn').onclick = redo;
-  $('#surpriseBtn').onclick = surpriseMe;
-  $('#uploadInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const url = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); });
-    const id = `upload-${Date.now()}`;
-    uploads.set(id, url);
-    await loadImage(id, url);
-    pushUndo();
-    state.panels[selected].photo = id;
-    buildPhotoPicker(); render();
+  function bindInputs() {
+    $('titleInput').addEventListener('input', function () {
+      state.title = this.value;
+      render();
+    });
+    $('titleInput').addEventListener('change', pushHistory);
+    $('scriptInput').addEventListener('input', function () {
+      state.script = this.value;
+      render();
+    });
+    $('scriptInput').addEventListener('change', pushHistory);
+    $('taglineInput').addEventListener('input', function () {
+      state.tagline = this.value;
+      render();
+    });
+    $('taglineInput').addEventListener('change', pushHistory);
+    $('captionInput').addEventListener('input', function () {
+      state.panels[selected].caption = this.value;
+      render();
+    });
+    $('captionInput').addEventListener('change', pushHistory);
+    $('subInput').addEventListener('input', function () {
+      state.panels[selected].sub = this.value;
+      render();
+    });
+    $('subInput').addEventListener('change', pushHistory);
+    $('zoomInput').addEventListener('input', function () {
+      state.panels[selected].zoom = this.value / 100;
+      $('zoomVal').textContent = this.value + '%';
+      render();
+    });
+    $('zoomInput').addEventListener('change', pushHistory);
+    $('undoBtn').addEventListener('click', undo);
+    $('redoBtn').addEventListener('click', redo);
+    $('surpriseBtn').addEventListener('click', surprise);
+    $('exportBtn').addEventListener('click', exportCover);
+    $('uploadBtn').addEventListener('click', function () { $('fileInput').click(); });
+    $('fileInput').addEventListener('change', handleFiles);
+  }
+
+  function bindCanvas() {
+    var dragging = false, moved = false, lastX = 0, lastY = 0;
+    function pos(e) {
+      var r = canvas.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * (canvas.width / r.width),
+               y: (e.clientY - r.top) * (canvas.height / r.height) };
+    }
+    canvas.addEventListener('pointerdown', function (e) {
+      var p = pos(e);
+      var hit = panelAt(p.x, p.y);
+      if (hit < 0) return;
+      selected = hit;
+      syncPanelEditor();
+      render();
+      dragging = true; moved = false;
+      lastX = p.x; lastY = p.y;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      var p = pos(e);
+      var dx = p.x - lastX, dy = p.y - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 1) moved = true;
+      var geo = geometry();
+      var panel = geo.panels[selected];
+      var slot = state.panels[selected];
+      var img = images[slot.photo];
+      if (img && panel) {
+        var iw = img.naturalWidth, ih = img.naturalHeight;
+        var scale = Math.max(panel.w / iw, panel.h / ih) * (slot.zoom || 1);
+        var dw = iw * scale, dh = ih * scale;
+        slot.ox = clamp(slot.ox - dx / Math.max(1, dw - panel.w), 0, 1);
+        slot.oy = clamp(slot.oy - dy / Math.max(1, dh - panel.h), 0, 1);
+      }
+      lastX = p.x; lastY = p.y;
+      render();
+    });
+    canvas.addEventListener('pointerup', function () {
+      if (dragging && moved) pushHistory();
+      dragging = false;
+    });
+    canvas.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var slot = state.panels[selected];
+      pushHistory();
+      slot.zoom = clamp((slot.zoom || 1) * (e.deltaY < 0 ? 1.1 : 0.9), 1, 3);
+      syncPanelEditor();
+      render();
+    }, { passive: false });
+  }
+
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  function handleFiles(e) {
+    var files = Array.prototype.slice.call(e.target.files || []);
+    files.forEach(function (file) {
+      if (!file.type.match(/^image\//)) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var id = 'up' + (++uploadCount);
+        loadImage(reader.result).then(function (img) {
+          images[id] = img;
+          uploads.push(id);
+          buildTray();
+          assignPhoto(id);
+        });
+      };
+      reader.readAsDataURL(file);
+    });
     e.target.value = '';
-  });
-  document.querySelectorAll('[data-export]').forEach((b) => {
-    b.onclick = () => exportCover(b.dataset.export);
-  });
-}
-
-function surpriseMe() {
-  pushUndo();
-  const seed = (params.get('seed') ? parseInt(params.get('seed'), 10) : Date.now()) + Math.floor(Math.random() * 1e9);
-  const rnd = mulberry(seed);
-  const order = distinctOrder(seed);
-  state.layout = LAYOUTS[Math.floor(rnd() * LAYOUTS.length)].id;
-  state.grade = GRADES[Math.floor(rnd() * GRADES.length)].id;
-  state.panels = defaultPanels(state.layout).map((p, i) => ({
-    ...p,
-    photo: order[i % order.length],
-    zoom: 1 + rnd() * 0.6,
-    ox: (rnd() - 0.5) * 0.3, oy: (rnd() - 0.5) * 0.3,
-    caption: { ...CAPTIONS[Math.floor(rnd() * CAPTIONS.length)] },
-  }));
-  const titles = ['SUNSET HEIST', 'NEON SHORE', 'PIER PRESSURE', 'NIGHT SHIFT', 'VICE ROYALE', 'GOLDEN GETAWAY'];
-  state.title = titles[Math.floor(rnd() * titles.length)];
-  selected = 0;
-  syncControls(); render();
-}
-
-async function exportCover(sizeId) {
-  const size = SIZES.find((s) => s.id === sizeId) || currentSize();
-  const off = document.createElement('canvas');
-  off.width = size.w; off.height = size.h;
-  const savedSize = state.size;
-  drawCover(off.getContext('2d'), state, size.w, size.h, images);
-  state.size = savedSize;
-  const blob = await new Promise((res) => off.toBlob(res, 'image/png'));
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `neon-coast-cover-${size.id}-${size.w}x${size.h}.png`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  $('#exportNote').textContent = `Exported ${size.w} × ${size.h} PNG — check your downloads.`;
-}
-
-// Deterministic shot params (?shot=cover|editor) for screenshots.
-function applyParams() {
-  if (params.get('layout')) state.layout = params.get('layout');
-  if (params.get('grade')) state.grade = params.get('grade');
-  if (params.get('size')) state.size = params.get('size');
-  if (params.get('title')) state.title = params.get('title');
-  if (params.get('subtitle')) state.subtitle = params.get('subtitle');
-  if (params.get('tagline')) state.tagline = params.get('tagline');
-  if (params.get('sample')) {
-    const order = params.get('sample').split(',');
-    state.panels = defaultPanels(state.layout).map((p, i) => ({ ...p, photo: order[i % order.length] }));
-  } else {
-    state.panels = defaultPanels(state.layout);
   }
-  if (params.get('seed')) {
-    const seed = parseInt(params.get('seed'), 10);
-    const rnd = mulberry(seed);
-    const order = distinctOrder(seed);
-    state.layout = LAYOUTS[Math.floor(rnd() * LAYOUTS.length)].id;
-    state.grade = GRADES[Math.floor(rnd() * GRADES.length)].id;
-    state.panels = defaultPanels(state.layout).map((p, i) => ({ ...p, photo: order[i % order.length], zoom: 1 + rnd() * 0.5 }));
+
+  function surprise() {
+    pushHistory();
+    var layout = CS.LAYOUTS[Math.floor(Math.random() * CS.LAYOUTS.length)];
+    var grade = CS.GRADES[Math.floor(Math.random() * CS.GRADES.length)];
+    var title = CS.TITLES[Math.floor(Math.random() * CS.TITLES.length)];
+    var order = CS.SAMPLE_PHOTOS.map(function (p) { return p.id; });
+    for (var i = order.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = order[i]; order[i] = order[j]; order[j] = t;
+    }
+    state.layout = layout.id;
+    state.grade = grade.id;
+    state.title = title.title;
+    state.script = title.script;
+    CS.assignNoRepeat(state, order);
+    selected = 0;
+    syncControls();
+    render();
   }
-  if (shot === 'cover') document.body.classList.add('shot-cover');
-}
 
-async function init() {
-  applyParams();
-  bindControls();
-  syncControls();
-  await loadSamples();
-  render();
-  document.body.classList.add('ready');
-}
+  function exportCover() {
+    var size = CS.SIZES[state.size];
+    var off = document.createElement('canvas');
+    off.width = size.w;
+    off.height = size.h;
+    CS.drawCover(off.getContext('2d'), state, images, size.w, size.h);
+    off.toBlob(function (blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'cover-' + state.size + '-' + state.layout + '.png';
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    }, 'image/png');
+  }
 
-init();
+  // Shot mode: full-viewport cover, no editor chrome, for screenshots.
+  // The same drawCover() the export button uses, so the shot IS the export.
+  window.__exportCover = function (sizeKey, maxW, quality) {
+    var size = CS.SIZES[sizeKey] || CS.SIZES.landscape;
+    var scale = maxW ? Math.min(1, maxW / size.w) : 1;
+    var w = Math.round(size.w * scale), h = Math.round(size.h * scale);
+    var off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    CS.drawCover(off.getContext('2d'), state, images, w, h);
+    return off.toDataURL('image/jpeg', quality || 0.8);
+  };
+  window.__setState = function (patch) {
+    Object.assign(state, patch);
+    syncControls();
+    render();
+  };
+
+  function boot() {
+    canvas = $('stage');
+    ctx = canvas.getContext('2d');
+    if (shotMode) document.body.classList.add('shot');
+    var params = new URLSearchParams(location.search);
+    if (params.get('layout')) state.layout = params.get('layout');
+    if (params.get('grade')) state.grade = params.get('grade');
+    if (params.get('size')) state.size = params.get('size');
+    buildTray();
+    syncControls();
+    bindInputs();
+    bindCanvas();
+    loadAll().then(function () { render(); window.__ready = true; });
+    render();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
