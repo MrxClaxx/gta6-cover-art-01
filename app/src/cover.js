@@ -1,17 +1,23 @@
-// Neon Coast Cover Studio — cover renderer.
+// Neon Coast Cover Studio — cover renderer (v2: centred-logo treatment).
 // Draws a dense multi-panel GTA-style poster cover on a 2D canvas:
 // photo panels with per-panel crop/position, sunset/neon grades,
-// gradient block title + neon script subtitle, panel captions,
-// badges, tagline band, grain, halftone and vignette.
+// a HUGE gradient block title centred over the panel grid like the official
+// GTA VI cover (logo overlapping the panel seams) + neon script subtitle,
+// panel captions, badges, tagline band, grain, halftone and vignette.
 // Every photo is local (samples/ or a user upload); nothing is fetched.
+// v2 changes: new default layout 'sunset-state' (cinematic golden-hour hero
+// left, full height, + 5 distinct small panels right); the title is now a
+// centred logo spanning ~97% of the width at ~0.66H instead of a bottom
+// band; the near-duplicate 'fisherman' sample was replaced by 'speedboat',
+// so the default cover never repeats a photo.
 
 export const SAMPLES = [
   { id: 'boulevard', src: 'samples/boulevard.jpg', label: 'Boulevard' },
   { id: 'pier', src: 'samples/pier.jpg', label: 'Pier' },
   { id: 'tower', src: 'samples/tower.jpg', label: 'Lifeguard' },
   { id: 'marina', src: 'samples/marina.jpg', label: 'Marina' },
-  { id: 'fisherman', src: 'samples/fisherman.jpg', label: 'Fisherman' },
   { id: 'rooftop', src: 'samples/rooftop.jpg', label: 'Rooftop' },
+  { id: 'speedboat', src: 'samples/speedboat.jpg', label: 'Speedboat' },
 ];
 
 export const GRADES = [
@@ -23,7 +29,11 @@ export const GRADES = [
 ];
 
 // Layouts: panels as [x, y, w, h] fractions of the cover, plus optional rotation (deg).
+// 'sunset-state' is the default: a cinematic golden-hour hero on the left, full
+// height, with five distinct small panels on the right — the title logo overlaps
+// the panel seams across the middle, like the official GTA VI cover.
 export const LAYOUTS = [
+  { id: 'sunset-state', name: 'Sunset State · 6', panels: [[0, 0, .56, 1], [.57, 0, .21, .30], [.79, 0, .21, .30], [.57, .31, .43, .30], [.57, .62, .21, .38], [.79, .62, .21, .38]] },
   { id: 'vice-grid', name: 'Vice Grid · 8', panels: [[0, 0, .44, .58], [.45, 0, .27, .28], [.73, 0, .27, .28], [.45, .29, .27, .29], [.73, .29, .27, .29], [0, .59, .32, .41], [.33, .59, .33, .41], [.67, .59, .33, .41]] },
   { id: 'hero-three', name: 'Hero + 3', panels: [[0, 0, .6, 1], [.61, 0, .39, .32], [.61, .33, .39, .33], [.61, .67, .39, .33]] },
   { id: 'tilted', name: 'Tilted Snaps · 5', panels: [[0, .02, .46, .52, -2], [.47, 0, .53, .46, 2], [0, .55, .32, .45, 1.5], [.33, .53, .34, .47, -1.5], [.68, .55, .32, .45, 2]] },
@@ -92,7 +102,7 @@ function drawPhotoCover(ctx, img, p, crop) {
   ctx.drawImage(img, dx, dy, dw, dh);
 }
 
-function drawCaptionStrip(ctx, p, cap, W, H) {
+function drawCaptionStrip(ctx, p, cap, W, H, zoneTop) {
   if (!cap) return;
   const fs = Math.max(11, Math.round(W * 0.011));
   const pad = Math.round(W * 0.008);
@@ -102,8 +112,9 @@ function drawCaptionStrip(ctx, p, cap, W, H) {
   const w1 = ctx.measureText(line1).width, w2 = ctx.measureText(line2).width;
   const bw = Math.max(w1, w2) + pad * 2, bh = fs * 2 + pad * 1.7;
   const bx = p.x + Math.round(W * 0.006);
-  // Panels whose bottom sits under the title block get their caption at the top.
-  const by = (p.y + p.h > H * 0.62)
+  // Panels whose bottom sits under the centred title logo get their caption
+  // at the top, so the logo never covers a caption strip.
+  const by = (p.y + p.h > zoneTop)
     ? p.y + Math.round(W * 0.006)
     : p.y + p.h - bh - Math.round(W * 0.006);
   ctx.fillStyle = 'rgba(10,4,20,0.82)';
@@ -203,25 +214,34 @@ export function drawCover(ctx, state, W, H, images) {
   bg.addColorStop(0, '#1b0b3b'); bg.addColorStop(0.45, '#4b1158'); bg.addColorStop(0.75, '#c22a6b'); bg.addColorStop(1, '#ff7a18');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
-  // Title + subtitle metrics first: bottom-row captions that would collide
-  // with the neon script subtitle are skipped instead of half-hidden.
+  // Centred-logo metrics: the block title spans ~97% of the width and sits
+  // across the middle of the cover, overlapping the panel seams like the
+  // official GTA VI cover; the neon script subtitle hangs below it.
   const title = (state.title || 'SUNSET HEIST').toUpperCase();
   const sub = state.subtitle || 'Vice City nights';
-  const titlePx = fitTitleFont(ctx, title, W * 0.96, Math.round(H * 0.17), 'Anton, sans-serif');
-  const titleY = H - Math.round(H * 0.085);
+  const titlePx = fitTitleFont(ctx, title, W * 0.97, Math.round(H * 0.30), 'Anton, sans-serif');
+  const titleY = Math.round(H * 0.66);
   const subPx = Math.max(20, Math.round(titlePx * 0.42));
   ctx.save();
   ctx.font = `${subPx}px Pacifico, cursive`;
   const subW = ctx.measureText(sub).width;
   ctx.restore();
-  const subRect = { x: W / 2 - subW / 2 - 10, y: titleY - titlePx * 0.92 - subPx, w: subW + 20, h: subPx * 1.25 };
-  const captionHidden = (p, i) => {
-    const pc = state.panels[i] || {};
+  const titleZoneTop = titleY - Math.round(titlePx * 0.78);
+  const titleRect = { x: Math.round(W * 0.015), y: titleZoneTop, w: Math.round(W * 0.97), h: Math.round(titlePx * 0.85 + subPx * 1.1) };
+  const subRect = { x: W / 2 - subW / 2 - 10, y: titleY + Math.round(subPx * 0.1), w: subW + 20, h: Math.round(subPx * 1.25) };
+  // A caption strip is skipped when its y-range would fall under the logo
+  // (the logo spans nearly the full width, so any strip in its band collides).
+  const captionHidden = (p) => {
     if (state.captions === false) return true;
-    if (p.y + p.h <= H * 0.62) return false; // top/mid rows: caption at bottom, no clash
-    const capTop = { x: p.x, y: p.y, w: p.w, h: Math.round(W * 0.011) * 2 + Math.round(W * 0.008) * 1.7 + 12 };
-    return capTop.x < subRect.x + subRect.w && capTop.x + capTop.w > subRect.x
-      && capTop.y < subRect.y + subRect.h && capTop.y + capTop.h > subRect.y;
+    const fs = Math.max(11, Math.round(W * 0.011));
+    const pad = Math.round(W * 0.008);
+    const stripH = fs * 2 + pad * 1.7 + 12;
+    const stripY = (p.y + p.h > titleZoneTop)
+      ? p.y + Math.round(W * 0.006)
+      : p.y + p.h - stripH - Math.round(W * 0.006);
+    const overlaps = (a0, a1, b0, b1) => a0 < b1 && a1 > b0;
+    return overlaps(stripY, stripY + stripH, titleRect.y, titleRect.y + titleRect.h)
+      || overlaps(stripY, stripY + stripH, subRect.y, subRect.y + subRect.h);
   };
 
   // Photo panels.
@@ -248,7 +268,7 @@ export function drawCover(ctx, state, W, H, images) {
     ctx.lineWidth = Math.max(2, W * 0.0022);
     ctx.strokeRect(p.x + 1, p.y + 1, p.w - 2, p.h - 2);
     ctx.restore();
-    if (!captionHidden(p, i)) drawCaptionStrip(ctx, p, pc.caption || CAPTIONS[i % CAPTIONS.length], W, H);
+    if (!captionHidden(p)) drawCaptionStrip(ctx, p, pc.caption || CAPTIONS[i % CAPTIONS.length], W, H, titleZoneTop);
   });
 
   // Sunset wash + vignette over the whole cover.
@@ -260,12 +280,12 @@ export function drawCover(ctx, state, W, H, images) {
   vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(10,2,24,0.5)');
   ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
 
-  // Title block: dark gradient rising from the bottom, halftone speckle.
-  const tbH = H * 0.34;
-  const tb = ctx.createLinearGradient(0, H - tbH, 0, H);
-  tb.addColorStop(0, 'rgba(12,2,28,0)'); tb.addColorStop(0.55, 'rgba(12,2,28,0.55)'); tb.addColorStop(1, 'rgba(12,2,28,0.88)');
-  ctx.fillStyle = tb; ctx.fillRect(0, H - tbH, W, tbH);
-  drawHalftone(ctx, 0, H - H * 0.13, W, H * 0.13, 7);
+  // Soft dark halo behind the centred logo so it reads over the photos,
+  // plus a whisper of halftone in the logo band.
+  const halo = ctx.createRadialGradient(W / 2, titleY - titlePx * 0.2, Math.min(W, H) * 0.08, W / 2, titleY - titlePx * 0.2, Math.max(W, H) * 0.62);
+  halo.addColorStop(0, 'rgba(12,2,28,0.5)'); halo.addColorStop(0.6, 'rgba(12,2,28,0.26)'); halo.addColorStop(1, 'rgba(12,2,28,0)');
+  ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+  drawHalftone(ctx, 0, titleZoneTop, W, titlePx * 0.9 + subPx, 7);
 
   // Badges (top-right cluster).
   if (state.badges !== false) {
@@ -275,7 +295,7 @@ export function drawCover(ctx, state, W, H, images) {
     drawPill(ctx, g * 2, g * 2, 'WANTED  ★★★★★', W, '#ff2e63', '#fff');
   }
 
-  // Neon script subtitle, tilted, overlapping the block title.
+  // Centred logo: gradient block title, thick dark outline + pink shadow.
   ctx.save();
   ctx.save();
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -289,8 +309,9 @@ export function drawCover(ctx, state, W, H, images) {
   ctx.fillStyle = grad; ctx.fillText(title, W / 2, titleY);
   ctx.restore();
 
+  // Neon script subtitle, tilted, hanging below the block title.
   ctx.save();
-  ctx.translate(W / 2, titleY - titlePx * 0.92);
+  ctx.translate(W / 2, titleY + Math.round(subPx * 0.55));
   ctx.rotate(-0.045);
   ctx.textAlign = 'center';
   ctx.font = `${subPx}px Pacifico, cursive`;

@@ -1,9 +1,13 @@
-// Neon Coast Cover Studio — editor.
+// Neon Coast Cover Studio — editor (v2: centred-logo cover, distinct photos).
 // Live canvas preview, click-to-select panels, drag to position + wheel to zoom,
-// upload/crop per panel, 9 layouts, 5 grades, editable title/subtitle/tagline,
+// upload/crop per panel, 10 layouts, 5 grades, editable title/subtitle/tagline,
 // undo/redo, Surprise me, PNG export in 3 post sizes. Offline: all files local.
 // URL params make shots deterministic: ?shot=cover|editor&layout=..&grade=..&size=..
 // &sample=..&title=..&subtitle=..&seed=.. (seed drives Surprise me).
+// v2: the default layout is 'sunset-state' (cinematic hero + 5 distinct panels)
+// and panel photos are never repeated within a cover — the first six panels
+// always show six different samples; longer layouts cycle only after every
+// sample has been used once.
 
 import { SAMPLES, GRADES, LAYOUTS, SIZES, CAPTIONS, drawCover, layoutPanels, panelAt } from './cover.js';
 
@@ -11,9 +15,30 @@ const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const shot = params.get('shot') || 'editor';
 
+function mulberry(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// Seeded shuffle of the sample ids — panels take the first N, so no photo
+// repeats until every sample has been used once.
+function distinctOrder(seed) {
+  const order = SAMPLES.map((s) => s.id);
+  const rnd = mulberry(seed);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+// The default cover opens with the cinematic golden-hour hero photo; the rest
+// are distinct samples in a fixed order that matches the panel captions.
+const HERO_ORDER = ['boulevard', 'tower', 'marina', 'rooftop', 'pier', 'speedboat'];
+
 function defaultPanels(layoutId) {
   const lay = LAYOUTS.find((l) => l.id === layoutId) || LAYOUTS[0];
-  const order = ['boulevard', 'pier', 'tower', 'marina', 'fisherman', 'rooftop'];
+  const order = layoutId === 'sunset-state' ? HERO_ORDER : distinctOrder(20261120);
   return lay.panels.map((_, i) => ({
     photo: order[i % order.length],
     zoom: 1, ox: 0, oy: 0,
@@ -23,10 +48,10 @@ function defaultPanels(layoutId) {
 
 function defaultState() {
   return {
-    layout: 'vice-grid', grade: 'sunset', size: 'landscape',
+    layout: 'sunset-state', grade: 'sunset', size: 'landscape',
     title: 'SUNSET HEIST', subtitle: 'Vice City nights',
     tagline: 'EVERY SUNSET HAS A PRICE  •  LEONIDA, 2026',
-    panels: defaultPanels('vice-grid'),
+    panels: defaultPanels('sunset-state'),
     badges: true, captions: true, grain: true,
   };
 }
@@ -41,7 +66,7 @@ function snapshot() { return JSON.stringify(state); }
 function pushUndo() { undoStack.push(snapshot()); if (undoStack.length > 40) undoStack.shift(); redoStack = []; updateUndoButtons(); }
 function restore(json) { state = JSON.parse(json); state.panels = state.panels.map((p) => ({ ...p, caption: { ...p.caption } })); selected = Math.min(selected, state.panels.length - 1); syncControls(); render(); }
 function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); updateUndoButtons(); }
-function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); updateUndoButtons(); }
+function redo() { if (!undoStack.length) return; undoStack.push(snapshot()); restore(undoStack.pop()); updateUndoButtons(); }
 function updateUndoButtons() { $('#undoBtn').disabled = !undoStack.length; $('#redoBtn').disabled = !redoStack.length; }
 
 function loadImage(id, src) {
@@ -245,20 +270,16 @@ function bindControls() {
   });
 }
 
-function mulberry(seed) {
-  let s = seed >>> 0;
-  return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
-
 function surpriseMe() {
   pushUndo();
   const seed = (params.get('seed') ? parseInt(params.get('seed'), 10) : Date.now()) + Math.floor(Math.random() * 1e9);
   const rnd = mulberry(seed);
+  const order = distinctOrder(seed);
   state.layout = LAYOUTS[Math.floor(rnd() * LAYOUTS.length)].id;
   state.grade = GRADES[Math.floor(rnd() * GRADES.length)].id;
   state.panels = defaultPanels(state.layout).map((p, i) => ({
     ...p,
-    photo: SAMPLES[Math.floor(rnd() * SAMPLES.length)].id,
+    photo: order[i % order.length],
     zoom: 1 + rnd() * 0.6,
     ox: (rnd() - 0.5) * 0.3, oy: (rnd() - 0.5) * 0.3,
     caption: { ...CAPTIONS[Math.floor(rnd() * CAPTIONS.length)] },
@@ -300,10 +321,12 @@ function applyParams() {
     state.panels = defaultPanels(state.layout);
   }
   if (params.get('seed')) {
-    const rnd = mulberry(parseInt(params.get('seed'), 10));
+    const seed = parseInt(params.get('seed'), 10);
+    const rnd = mulberry(seed);
+    const order = distinctOrder(seed);
     state.layout = LAYOUTS[Math.floor(rnd() * LAYOUTS.length)].id;
     state.grade = GRADES[Math.floor(rnd() * GRADES.length)].id;
-    state.panels = defaultPanels(state.layout).map((p) => ({ ...p, photo: SAMPLES[Math.floor(rnd() * SAMPLES.length)].id, zoom: 1 + rnd() * 0.5 }));
+    state.panels = defaultPanels(state.layout).map((p, i) => ({ ...p, photo: order[i % order.length], zoom: 1 + rnd() * 0.5 }));
   }
   if (shot === 'cover') document.body.classList.add('shot-cover');
 }
