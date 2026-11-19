@@ -1,4 +1,6 @@
-// Neon Coast Cover Studio — editor (v2: centred-logo cover, distinct photos).
+// Neon Coast Cover Studio — editor (v2: centred-logo cover, distinct photos;
+// v3: caption strips go compact near the logo; default bottom panels swapped
+// so the script never crosses a face).
 // Live canvas preview, click-to-select panels, drag to position + wheel to zoom,
 // upload/crop per panel, 10 layouts, 5 grades, editable title/subtitle/tagline,
 // undo/redo, Surprise me, PNG export in 3 post sizes. Offline: all files local.
@@ -34,15 +36,20 @@ function distinctOrder(seed) {
 
 // The default cover opens with the cinematic golden-hour hero photo; the rest
 // are distinct samples in a fixed order that matches the panel captions.
-const HERO_ORDER = ['boulevard', 'tower', 'marina', 'rooftop', 'pier', 'speedboat'];
+// v3: the bottom-middle and bottom-right panels are swapped (speedboat /
+// fisherman, photo + caption together) so the centred neon script subtitle
+// never crosses the fisherman's face — it now ends over the speedboat's sky.
+const HERO_ORDER = ['boulevard', 'tower', 'marina', 'rooftop', 'speedboat', 'pier'];
+const HERO_CAPTIONS = [0, 1, 2, 3, 5, 4]; // caption indices matching HERO_ORDER
 
 function defaultPanels(layoutId) {
   const lay = LAYOUTS.find((l) => l.id === layoutId) || LAYOUTS[0];
   const order = layoutId === 'sunset-state' ? HERO_ORDER : distinctOrder(20261120);
+  const capOrder = layoutId === 'sunset-state' ? HERO_CAPTIONS : null;
   return lay.panels.map((_, i) => ({
     photo: order[i % order.length],
     zoom: 1, ox: 0, oy: 0,
-    caption: { ...CAPTIONS[i % CAPTIONS.length] },
+    caption: { ...CAPTIONS[(capOrder ? capOrder[i] : i) % CAPTIONS.length] },
   }));
 }
 

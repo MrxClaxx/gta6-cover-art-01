@@ -10,6 +10,13 @@
 // centred logo spanning ~97% of the width at ~0.66H instead of a bottom
 // band; the near-duplicate 'fisherman' sample was replaced by 'speedboat',
 // so the default cover never repeats a photo.
+// v3 changes: caption strips use a shared geometry helper (stripGeom) — a
+// top-anchored strip that would end within 28px of the logo's hard top edge
+// (glyph cap top + outline stroke, above the logo rect) falls back to a
+// compact one-line form, so no caption is ever jammed against the logo.
+// The bottom-middle / bottom-right panels of the default cover are swapped
+// (speedboat / fisherman, photo + caption together) so the centred neon
+// script subtitle never crosses the fisherman's face.
 
 export const SAMPLES = [
   { id: 'boulevard', src: 'samples/boulevard.jpg', label: 'Boulevard' },
@@ -102,31 +109,82 @@ function drawPhotoCover(ctx, img, p, crop) {
   ctx.drawImage(img, dx, dy, dw, dh);
 }
 
-function drawCaptionStrip(ctx, p, cap, W, H, zoneTop) {
-  if (!cap) return;
+// Geometry of one panel's caption strip. Panels whose bottom sits under the
+// centred title logo get their caption at the top, so the logo never covers
+// a caption strip. A top-anchored strip that would end within CLEAR px of
+// the logo's hard top edge (glyph cap top + outline stroke) falls back to a
+// compact one-line form ("PLACE · TIME · TAG"), so the text stays fully
+// readable and clear of the logo. Returns null when the strip must be hidden
+// (it would still collide with the logo or the subtitle).
+const STRIP_CLEAR = 24;
+function stripGeom(p, W, titleRect, hardTitleTop, subRect) {
   const fs = Math.max(11, Math.round(W * 0.011));
   const pad = Math.round(W * 0.008);
+  const off = Math.round(W * 0.006);
+  const topAnchored = p.y + p.h > titleRect.y;
+  const twoLineH = fs * 2 + pad * 1.7;
+  const oneLineH = fs + pad * 1.7;
+  let by, bh, compact = false;
+  if (topAnchored) {
+    by = p.y + off;
+    if (by + twoLineH > hardTitleTop - STRIP_CLEAR) {
+      compact = true;
+      bh = oneLineH;
+      if (by + bh > hardTitleTop - STRIP_CLEAR) return null;
+    } else {
+      bh = twoLineH;
+    }
+  } else {
+    by = p.y + p.h - twoLineH - off;
+    bh = twoLineH;
+  }
+  const overlaps = (a0, a1, b0, b1) => a0 < b1 && a1 > b0;
+  if (overlaps(by, by + bh, titleRect.y, titleRect.y + titleRect.h)) return null;
+  if (overlaps(by, by + bh, subRect.y, subRect.y + subRect.h)) return null;
+  return { by, bh, fs, pad, compact };
+}
+
+function drawCaptionStrip(ctx, p, cap, W, H, titleRect, hardTitleTop, subRect) {
+  if (!cap) return;
+  const g = stripGeom(p, W, titleRect, hardTitleTop, subRect);
+  if (!g) return;
+  const { fs, pad, by, bh, compact } = g;
   ctx.save();
-  ctx.font = `700 ${fs}px Arial, sans-serif`;
   const line1 = cap.place, line2 = `${cap.time}  ·  ${cap.tag}`;
-  const w1 = ctx.measureText(line1).width, w2 = ctx.measureText(line2).width;
-  const bw = Math.max(w1, w2) + pad * 2, bh = fs * 2 + pad * 1.7;
   const bx = p.x + Math.round(W * 0.006);
-  // Panels whose bottom sits under the centred title logo get their caption
-  // at the top, so the logo never covers a caption strip.
-  const by = (p.y + p.h > zoneTop)
-    ? p.y + Math.round(W * 0.006)
-    : p.y + p.h - bh - Math.round(W * 0.006);
-  ctx.fillStyle = 'rgba(10,4,20,0.82)';
-  ctx.fillRect(bx, by, bw, bh);
-  ctx.fillStyle = '#ffd23f';
-  ctx.fillRect(bx, by, Math.max(3, W * 0.002), bh);
-  ctx.fillStyle = '#fff';
   ctx.textBaseline = 'top';
-  ctx.fillText(line1, bx + pad, by + pad * 0.7);
-  ctx.fillStyle = '#ffb3c8';
-  ctx.font = `600 ${Math.round(fs * 0.82)}px Arial, sans-serif`;
-  ctx.fillText(line2, bx + pad, by + pad * 0.7 + fs * 1.05);
+  if (compact) {
+    // One line, vertically centred in the strip: place in white, time + tag
+    // in pink, same font size as the other strips.
+    const text = `${line1}  ·  ${line2}`;
+    ctx.font = `700 ${fs}px Arial, sans-serif`;
+    const bw = ctx.measureText(text).width + pad * 2;
+    ctx.fillStyle = 'rgba(10,4,20,0.82)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(bx, by, Math.max(3, W * 0.002), bh);
+    const ty = by + (bh - fs) / 2;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(line1, bx + pad, ty);
+    ctx.fillStyle = '#ffb3c8';
+    ctx.fillText(`  ·  ${line2}`, bx + pad + ctx.measureText(line1).width, ty);
+  } else {
+    ctx.font = `700 ${fs}px Arial, sans-serif`;
+    const w1 = ctx.measureText(line1).width;
+    ctx.font = `600 ${Math.round(fs * 0.82)}px Arial, sans-serif`;
+    const w2 = ctx.measureText(line2).width;
+    const bw = Math.max(w1, w2) + pad * 2;
+    ctx.fillStyle = 'rgba(10,4,20,0.82)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(bx, by, Math.max(3, W * 0.002), bh);
+    ctx.font = `700 ${fs}px Arial, sans-serif`;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(line1, bx + pad, by + pad * 0.7);
+    ctx.fillStyle = '#ffb3c8';
+    ctx.font = `600 ${Math.round(fs * 0.82)}px Arial, sans-serif`;
+    ctx.fillText(line2, bx + pad, by + pad * 0.7 + fs * 1.05);
+  }
   ctx.restore();
 }
 
@@ -229,19 +287,16 @@ export function drawCover(ctx, state, W, H, images) {
   const titleZoneTop = titleY - Math.round(titlePx * 0.78);
   const titleRect = { x: Math.round(W * 0.015), y: titleZoneTop, w: Math.round(W * 0.97), h: Math.round(titlePx * 0.85 + subPx * 1.1) };
   const subRect = { x: W / 2 - subW / 2 - 10, y: titleY + Math.round(subPx * 0.1), w: subW + 20, h: Math.round(subPx * 1.25) };
+  // Hard top edge of the centred logo: the glyph cap top plus half the
+  // thick outline stroke. It sits above the logo rect (the rect starts at
+  // titleZoneTop), so a caption can look clear of the rect yet still touch
+  // the letters — strips are kept 28px clear of this edge instead.
+  const hardTitleTop = titleY - Math.round(titlePx * 0.89);
   // A caption strip is skipped when its y-range would fall under the logo
   // (the logo spans nearly the full width, so any strip in its band collides).
   const captionHidden = (p) => {
     if (state.captions === false) return true;
-    const fs = Math.max(11, Math.round(W * 0.011));
-    const pad = Math.round(W * 0.008);
-    const stripH = fs * 2 + pad * 1.7 + 12;
-    const stripY = (p.y + p.h > titleZoneTop)
-      ? p.y + Math.round(W * 0.006)
-      : p.y + p.h - stripH - Math.round(W * 0.006);
-    const overlaps = (a0, a1, b0, b1) => a0 < b1 && a1 > b0;
-    return overlaps(stripY, stripY + stripH, titleRect.y, titleRect.y + titleRect.h)
-      || overlaps(stripY, stripY + stripH, subRect.y, subRect.y + subRect.h);
+    return stripGeom(p, W, titleRect, hardTitleTop, subRect) === null;
   };
 
   // Photo panels.
@@ -268,7 +323,7 @@ export function drawCover(ctx, state, W, H, images) {
     ctx.lineWidth = Math.max(2, W * 0.0022);
     ctx.strokeRect(p.x + 1, p.y + 1, p.w - 2, p.h - 2);
     ctx.restore();
-    if (!captionHidden(p)) drawCaptionStrip(ctx, p, pc.caption || CAPTIONS[i % CAPTIONS.length], W, H, titleZoneTop);
+    if (!captionHidden(p)) drawCaptionStrip(ctx, p, pc.caption || CAPTIONS[i % CAPTIONS.length], W, H, titleRect, hardTitleTop, subRect);
   });
 
   // Sunset wash + vignette over the whole cover.
