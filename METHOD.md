@@ -29,6 +29,25 @@ overlapping the seams, corner badge), v2 rebuilds the cover around the logo:
    bottom falls under the logo band, and any strip that would still fall
    under the logo is skipped — so the logo never covers a caption.
 
+## v3 — two flaws fixed (v2 judged 0.864, live rank #89)
+1. **LEONIDA KEYS caption jammed against the logo:** the strip sat at the top
+   of the middle-right panel with only ~7px between its bottom edge and the
+   logo's hard top edge (glyph cap top + outline stroke, above the logo
+   rect the old code measured against). Caption geometry now lives in one
+   shared helper (`stripGeom` in cover.js): a top-anchored strip that would
+   end within 24px of the hard top edge falls back to a compact one-line
+   form ("LEONIDA KEYS · 5:47 AM · LAST CAST", same font size, place white +
+   time/tag pink), which clears the logo by ~28px. Both the draw and the
+   hide decision use the same helper, so they can never disagree.
+2. **Script crossed the fisherman's face:** the centred neon subtitle
+   "Vice City nights" ended over the bottom-middle panel, across the
+   fisherman's eyes/mouth. Rather than dragging the subtitle off-centre, the
+   default cover's bottom-middle and bottom-right panels are swapped
+   (speedboat / fisherman, photo + caption together, so every photo keeps
+   its caption): the fisherman now sits bottom-right, ~164px clear of the
+   script's right end, and the script ends over the speedboat's sky. The
+   script itself is untouched and stays centred under the title.
+
 ## How the cover is drawn (cover.js: drawCover)
 1. Dusk gradient backdrop; each layout panel is clipped with rounded corners and
    white edge light, then filled with its photo cover-fit at the panel's own
