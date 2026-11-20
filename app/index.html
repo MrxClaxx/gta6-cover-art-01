@@ -3,86 +3,70 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Neon Coast Cover Studio — GTA-style cover art maker</title>
+<title>Leonida Nights — GTA-Style Cover Art Maker</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <h1>Neon Coast <span>Cover Studio</span></h1>
-    <p>Turn any photo into GTA-style cover art. Pick a layout, drop in photos, export a PNG.</p>
-  </div>
-  <div class="top-actions">
-    <button id="undoBtn" type="button" disabled>↩ Undo</button>
-    <button id="redoBtn" type="button" disabled>↪ Redo</button>
-    <button id="surpriseBtn" type="button" class="accent">🎲 Surprise me</button>
-    <button id="exportBtn" type="button" class="primary">⬇ Export PNG</button>
-  </div>
-</header>
+<div id="editor">
+  <header class="topbar">
+    <h1>LEONIDA NIGHTS</h1>
+    <p class="subtitle">GTA-style cover art maker — every sunset hides a story.</p>
+  </header>
 
-<main class="workspace">
-  <section class="stage-col">
-    <div class="stage-wrap">
-      <canvas id="stage" width="960" height="540"></canvas>
-    </div>
-    <div id="sizeRow" class="size-row" role="group" aria-label="Export size"></div>
-    <div class="tray-head">
-      <h2>Photos</h2>
-      <button id="uploadBtn" type="button">＋ Upload your own</button>
-      <input id="fileInput" type="file" accept="image/*" multiple hidden>
-    </div>
-    <p class="hint">Click a photo, then click a panel to place it. Drag a panel to move its photo, scroll to zoom.</p>
-    <div id="tray" class="tray"></div>
-  </section>
+  <main class="layout">
+    <section class="preview-column">
+      <div class="preview-frame">
+        <canvas id="preview" width="1080" height="1350"></canvas>
+      </div>
+      <p id="status-line" class="status">Loading samples…</p>
+      <p class="hint">Click a panel to select it. Drag on the preview to pan the photo, scroll to zoom, or drop a photo file onto a panel.</p>
+      <div class="size-row" role="group" aria-label="Preview size">
+        <button type="button" data-size="portrait" class="active">Portrait 1080 × 1350</button>
+        <button type="button" data-size="square">Square 1080 × 1080</button>
+        <button type="button" data-size="wide">Wide 1920 × 1080</button>
+      </div>
+    </section>
 
-  <aside class="sidebar">
-    <section class="card">
-      <h2>Layout</h2>
-      <div id="layoutGrid" class="layout-grid"></div>
-    </section>
-    <section class="card">
-      <h2>Colour grade</h2>
-      <div id="gradeRow" class="grade-row"></div>
-    </section>
-    <section class="card">
-      <h2>Lettering</h2>
-      <label>Title
-        <input id="titleInput" type="text" maxlength="24" value="SUNSET HEIST">
+    <section class="controls-column">
+      <h2>1 · Caption</h2>
+      <label class="field">Title
+        <input id="title-input" type="text" maxlength="24" value="LEONIDA NIGHTS">
       </label>
-      <label>Script line
-        <input id="scriptInput" type="text" maxlength="40" value="Vice City nights">
+      <label class="field">Tagline
+        <input id="tagline-input" type="text" maxlength="60" value="Every sunset hides a story.">
       </label>
-      <label>Tagline
-        <input id="taglineInput" type="text" maxlength="60" value="EVERY SUNSET HAS A PRICE • LEONIDA, 2026">
-      </label>
-    </section>
-    <section class="card">
-      <h2 id="panelName">Panel 1</h2>
-      <label>Caption
-        <input id="captionInput" type="text" maxlength="24" placeholder="OCEAN DRIVE">
-      </label>
-      <label>Sub-caption
-        <input id="subInput" type="text" maxlength="40" placeholder="6:12 PM · GOLDEN HOUR">
-      </label>
-      <label>Zoom <span id="zoomVal">100%</span>
-        <input id="zoomInput" type="range" min="100" max="300" value="100">
-      </label>
-      <p class="hint">Captions move out of the title's way on their own — they are never hidden behind it.</p>
-    </section>
-    <section class="card about">
-      <h2>About</h2>
-      <p>Neon Coast Cover Studio renders every cover on a canvas, offline, from your own files.
-      Lettering is set in Anton and Pacifico (SIL Open Font License). No Rockstar Games
-      artwork, logo or font is used anywhere in this app.</p>
-    </section>
-  </aside>
-</main>
+      <p class="note">The title and tagline live in their own band below the hero photo — they never cover a face.</p>
 
-<footer class="foot">
-  <p>100% offline · Your photos never leave this page · Exports: 1920×1080, 1080×1080, 1080×1350 PNG</p>
-</footer>
+      <h2>2 · Panels</h2>
+      <div id="panel-list"></div>
+      <div class="button-row">
+        <button type="button" id="fill-all">Fill all panels with the selected photo</button>
+        <button type="button" id="load-samples">Load all 5 sample scenes</button>
+      </div>
 
-<script src="src/cover.js"></script>
-<script src="src/main.js"></script>
+      <h2>3 · Sample scenes</h2>
+      <p class="note">Tap a scene to load it into the selected panel. All five are original illustrations made for this app.</p>
+      <div id="sample-gallery"></div>
+
+      <h2>4 · Export PNG</h2>
+      <div class="button-row export-row">
+        <button type="button" data-export="portrait">Portrait 1080 × 1350</button>
+        <button type="button" data-export="square">Square 1080 × 1080</button>
+        <button type="button" data-export="wide">Wide 1920 × 1080</button>
+      </div>
+      <p class="note">Exports are plain PNG files, ready to post. No photo ever leaves this machine.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>Leonida Nights — original cover art. Not affiliated with Rockstar Games. No Rockstar logo, artwork, character or font is used. System fonts only.</p>
+  </footer>
+</div>
+
+<div id="export-view" style="display: none;">
+  <canvas id="export-canvas"></canvas>
+</div>
+
+<script type="module" src="src/main.js"></script>
 </body>
 </html>
